@@ -1,0 +1,198 @@
+version: "3.9"
+
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    container_name: mqtt-broker
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password123
+      - DOCKER_INFLUXDB_INIT_ORG=utp
+      - DOCKER_INFLUXDB_INIT_BUCKET=sensors
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=mySuperSecretToken123!
+    restart: unless-stopped
+
+  time-server:
+    build: .
+    container_name: time-server
+    depends_on:
+      - mqtt-broker
+    command: "node time-server/time-server.js"
+    restart: on-failure
+
+  # Lock-coordinator desactivado para el examen
+  #lock-coordinator:
+  #  build: .
+  #  container_name: lock-coordinator
+  #  depends_on:
+  #    - mqtt-broker
+  #  command: "node lock-coordinator/lock-coordinator.js"
+  #  restart: on-failure
+
+  # ===============================
+  #    5 Publishers del examen
+  # ===============================
+  publisher-11:
+    build: .
+    container_name: publisher-11
+    depends_on:
+      - mqtt-broker
+      - time-server
+    command: "node publisher/publisher.js"
+    environment:
+      - DEVICE_ID=sensor-11
+      - PRIORITY=10
+      - PROCESS_ID=0
+      - CLOCK_DRIFT_RATE=300
+      - ELECTION_PARTICIPANTS=sensor-11:10,sensor-12:20,sensor-13:30,sensor-14:40,sensor-15:50
+    volumes:
+      - waldata:/data
+    restart: on-failure
+
+  publisher-12:
+    build: .
+    container_name: publisher-12
+    depends_on:
+      - mqtt-broker
+      - time-server
+    command: "node publisher/publisher.js"
+    environment:
+      - DEVICE_ID=sensor-12
+      - PRIORITY=20
+      - PROCESS_ID=1
+      - CLOCK_DRIFT_RATE=-200
+      - ELECTION_PARTICIPANTS=sensor-11:10,sensor-12:20,sensor-13:30,sensor-14:40,sensor-15:50
+    volumes:
+      - waldata:/data
+    restart: on-failure
+
+  publisher-13:
+    build: .
+    container_name: publisher-13
+    depends_on:
+      - mqtt-broker
+      - time-server
+    command: "node publisher/publisher.js"
+    environment:
+      - DEVICE_ID=sensor-13
+      - PRIORITY=30
+      - PROCESS_ID=2
+      - CLOCK_DRIFT_RATE=100
+      - ELECTION_PARTICIPANTS=sensor-11:10,sensor-12:20,sensor-13:30,sensor-14:40,sensor-15:50
+    volumes:
+      - waldata:/data
+    restart: on-failure
+
+  publisher-14:
+    build: .
+    container_name: publisher-14
+    depends_on:
+      - mqtt-broker
+      - time-server
+    command: "node publisher/publisher.js"
+    environment:
+      - DEVICE_ID=sensor-14
+      - PRIORITY=40
+      - PROCESS_ID=3
+      - CLOCK_DRIFT_RATE=-150
+      - ELECTION_PARTICIPANTS=sensor-11:10,sensor-12:20,sensor-13:30,sensor-14:40,sensor-15:50
+    volumes:
+      - waldata:/data
+    restart: on-failure
+
+  publisher-15:
+    build: .
+    container_name: publisher-15
+    depends_on:
+      - mqtt-broker
+      - time-server
+    command: "node publisher/publisher.js"
+    environment:
+      - DEVICE_ID=sensor-15
+      - PRIORITY=50
+      - PROCESS_ID=4
+      - CLOCK_DRIFT_RATE=50
+      - ELECTION_PARTICIPANTS=sensor-11:10,sensor-12:20,sensor-13:30,sensor-14:40,sensor-15:50
+    volumes:
+      - waldata:/data
+    restart: on-failure
+
+  persistence-subscriber:
+    build: .
+    container_name: persistence-subscriber
+    depends_on:
+      - mqtt-broker
+      - influxdb
+    command: "node subscriber/persistence-subscriber.js"
+    environment:
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=mySuperSecretToken123!
+      - INFLUXDB_ORG=utp
+      - INFLUXDB_BUCKET=sensors
+      - PROCESS_ID=2
+    restart: on-failure
+
+  # Los demás subscribers no son críticos para el caos, pero los dejo
+  unicast-subscriber:
+    build: .
+    container_name: unicast-subscriber
+    depends_on:
+      - mqtt-broker
+    command: "node subscriber/unicast.js"
+    restart: on-failure
+
+  multicast-subscriber:
+    build: .
+    container_name: multicast-subscriber
+    depends_on:
+      - mqtt-broker
+    command: "node subscriber/multicast.js"
+    restart: on-failure
+
+  broadcast-subscriber:
+    build: .
+    container_name: broadcast-subscriber
+    depends_on:
+      - mqtt-broker
+    command: "node subscriber/broadcast.js"
+    restart: on-failure
+
+  monitor:
+    build: .
+    container_name: monitor
+    depends_on:
+      - mqtt-broker
+    command: "node subscriber/monitor.js"
+    restart: on-failure
+
+  web-monitor:
+    image: nginx:1.25-alpine
+    container_name: web-monitor
+    ports:
+      - "8080:80"
+    volumes:
+      - ./web-monitor:/usr/share/nginx/html:ro
+    depends_on:
+      - mqtt-broker
+    restart: unless-stopped
+
+volumes:
+  influxdb_data:
+  waldata:
